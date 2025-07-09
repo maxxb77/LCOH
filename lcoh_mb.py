@@ -6,9 +6,11 @@ from itertools import product
 
 root_dir = "/Users/max/Documents/GitHub"
 
-cf_char = pd.read_csv(os.path.join(root_dir,"FINITO","inputs","char_cf.csv"))
+cf_char = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","char_cf.csv"))
 fuel_prices_state = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","fuel_prices_state.csv"))
-
+state_name_abb = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","state_name_abb.csv"))
+state_name_abb['state_name'] = state_name_abb['state_name'].str.lower().str.replace(' ', '')
+state_name_abb['state_abb'] = state_name_abb['state_abb'].str.lower().str.replace(' ', '')
 
 def format_columns(df):
     df2 = df
@@ -25,7 +27,6 @@ h2_char['HYD'] = h2_char['HYD'].astype(float)
 h2_char = h2_char[h2_char['HYD']>0]
 h2_char = h2_char[h2_char['id']=='new']
 
-print
 
 print(cf_char.columns)
 remove_columns_h2 = ["id","r","lat","lon","int_elec_self", "int_h2", "int_h2_mark", "int_h2_self", "int_co2", "int_co2_mark", 
@@ -245,6 +246,251 @@ id_vars2 = [x for x in list(h2_state.columns) if x not in components_state]
 h2_state_out = pd.melt(h2_state,value_name='LCOF_Cost',value_vars=components_state,id_vars = id_vars2)
 
 h2_state_out.to_csv(os.path.join(root_dir,"LCOH","lcoh_state.csv"))
+
+
+
+
+#--- begin h2 by county ---#
+
+c2z_loc = "/Users/max/Documents/GitHub/ReEDS-2.0/inputs/county2zone.csv"
+
+c2z = pd.read_csv(c2z_loc,names=['fips','ba','county_name','state_abb'],header=0, dtype={'fips': str})
+
+slope_cols = ["county_name","state_full", "state_code", "ele_tech", "year", "gid", "lcoe_min", "lcoe_max", "lcoe_med", "cap_min", "cap_max", "cap_med", "fips"]
+lcoe_county = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","SLOPE_LCOE.csv"),names=slope_cols,header=0, dtype={'fips': str})
+chosen_lcoe = "lcoe_blend"
+lcoe_year = 2030
+
+
+
+
+# filter by year
+# remove battery techs
+# find minimum value
+# stack
+lcoe_county_sub = lcoe_county[lcoe_county['year']==lcoe_year]
+lcoe_county_sub = lcoe_county_sub[["fips","ele_tech",chosen_lcoe]]
+lcoe_county_nobattery = lcoe_county_sub[lcoe_county_sub['ele_tech']!="battery"]
+lcoe_county_sub = lcoe_county_sub[(lcoe_county_sub['ele_tech']=="land-based_wind") | (lcoe_county_sub['ele_tech']=='pv')]
+lcoe_min = lcoe_county_nobattery.groupby('fips')[chosen_lcoe].min().reset_index()
+lcoe_min['ele_tech'] = "min_alltechs"
+lcoe_county_out = pd.concat([lcoe_min,lcoe_county_sub]).drop_duplicates().reset_index()
+
+county_wide = lcoe_county_out.pivot(index=['fips'], columns=['ele_tech'], values=chosen_lcoe).reset_index()
+county_wide.columns = ['fips','lcoe_wind','lcoe_min','lcoe_pv']
+
+#!!! re-visit assumptions here
+county_wide['lcoe_blend'] = 0.389 * county_wide['lcoe_wind'] +  0.332 * county_wide['lcoe_pv']
+
+county_wide = pd.merge(county_wide,c2z[['fips','state_abb']],on='fips')
+county_wide['state_abb'] = county_wide['state_abb'].str.lower().str.replace(' ', '')
+
+fuel_prices_state = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","fuel_prices_state.csv"))
+
+fuel_prices_state['state_name'] = fuel_prices_state['State'].str.lower().str.replace(' ', '')
+fuel_prices_state = pd.merge(fuel_prices_state,state_name_abb)
+
+fuel_prices_state = fuel_prices_state[['state_abb','ELE_IND','Gas','CCS2']]
+fuel_prices_state.columns = ['state_abb','grid_ele_price','gas_price','ccs_cost']
+
+county_wide = pd.merge(county_wide,fuel_prices_state,on='state_abb')
+
+temp_wide = county_wide[['fips','state_abb',chosen_lcoe,'grid_ele_price','gas_price','ccs_cost']]
+temp_wide.columns = ['fips','state_abb','offgrid_ele_price','grid_ele_price','gas_price','ccs_cost']
+
+
+h2_county = h2_char_orig.copy()
+h2_county = h2_county[['pathway','cost_cap','cost_fom_per_metric_ton','ccs_cap_rate_comb','cost_vom','int_elec','int_ng']]
+
+h2_county = h2_county.merge(county_wide, how='cross')
+
+
+#compute the WACC and capital recovery factor to use in LCOF
+h2_county['wacc'] = (1-equity_share)*int_debt*(1-tax_rate)+equity_share*rroe_real
+#wacc_par = (1-equity_share)*int_debt*(1-tax_rate)+equity_share*rroe_real
+
+h2_county['crf'] = (h2_county['wacc'] * (1+h2_county['wacc'])**fac_lifetime) / ( (1+h2_county['wacc'])**fac_lifetime-1 )
+#crf_par = (wacc_par * (1+wacc_par)**fac_lifetime) / ( (1+wacc_par)**fac_lifetime-1 )
+
+h2_county['cost_cap'] = h2_county['cost_cap'].astype(float)
+h2_county['LCOF_cap'] = h2_county['cost_cap']/114.877/365*cdt_factor*h2_county['crf']/cap_factor
+h2_county['LCOF_vom'] = h2_county['cost_vom'].astype(float)
+
+#!!! if copying this line, need to include other components
+#h2_county['emit_rate_comb'] = 0.052 * h2_county['int_ng'].astype(float)
+#h2_county['emit_ele'] = 365 * h2_county['int_elec'].astype(float)
+#h2_county['emit_rate_total'] = h2_county['emit_rate_comb'] + h2_county['emit_ele']
+#captured emissions do not include upstream accounting
+h2_county['emit_captured'] = h2_county['ccs_cap_rate_comb'].astype(float) * 0.053 * h2_county['int_ng'].astype(float)
+
+
+#h2_county['LCOF_co2_tax_cost'] = h2_county['co2_tax'] * h2_county['emit_rate_total']
+h2_county['LCOF_co2_tns'] = h2_county['ccs_cost'].astype(float) * h2_county['emit_captured']
+
+#!!!! will also need expanding when looking at steel
+h2_county['LCOF_energy_gas'] = h2_county['int_ng'].astype(float) * h2_county['gas_price']
+# note conversion from cents per kwh to dollars per mwh via the factor of 10
+h2_county['LCOF_energy_elec_ongrid'] = 10 * h2_county['int_elec'].astype(float) * h2_county['grid_ele_price'] 
+h2_county['LCOF_energy_elec_wind'] = h2_county['int_elec'].astype(float) * h2_county['lcoe_wind'] 
+h2_county['LCOF_energy_elec_pv'] = h2_county['int_elec'].astype(float) * h2_county['lcoe_pv'] 
+h2_county['LCOF_energy_elec_min'] = h2_county['int_elec'].astype(float) * h2_county['lcoe_min'] 
+h2_county['LCOF_energy_elec_blend'] = h2_county['int_elec'].astype(float) * h2_county['lcoe_blend'] 
+h2_county['LCOF_fom'] = h2_county['cost_fom_per_metric_ton'].astype(float)/114.877
+
+h2_transport_stor = pd.read_csv("/Users/max/Documents/GitHub/ReEDS-2.0/inputs/consume/h2_transport_and_storage_costs.csv",
+                                names=['type','t','parameter','value'],header=0)
+h2_stor = pd.read_csv("/Users/max/Documents/GitHub/ReEDS-2.0/inputs/consume/h2_storage_rb.csv",names=['type','ba'],header=0)
+
+h2_stor_char = pd.merge(h2_stor,h2_transport_stor,how='left')
+
+h2_stor_char = h2_stor_char[h2_stor_char['parameter'].isin(['cost_cap','fom'])]
+
+h2_stor_char['LCOS'] = 0
+
+#h2_county['LCOF_cap'] = h2_county['cost_cap']/114.877/365*cdt_factor*h2_county['crf']/cap_factor
+h2_stor_char.loc[h2_stor_char['parameter']=='cost_cap','LCOS'] = (h2_stor_char['value'] / 8760 / 114.877) / 0.15
+
+#h2_perm['LCOF_fom'] = h2_perm['cost_fom_per_metric_ton'].astype(float)/114.877
+h2_stor_char.loc[h2_stor_char['parameter']=='fom','LCOS'] = h2_stor_char['value'] / 1e4
+
+
+h2_stor_char = h2_stor_char[h2_stor_char['t']==lcoe_year]
+h2_stor_char = h2_stor_char[['ba','parameter','LCOS']]
+
+h2_stor_char = h2_stor_char.pivot(index='ba',columns='parameter',values='LCOS').reset_index()
+h2_stor_char.columns = ['ba','LCOS_cap','LCOS_fom']
+
+#county_wide = lcoe_county_out.pivot(index=['fips'], columns=['ele_tech'], values=chosen_lcoe).reset_index()
+
+
+
+h2_county_withba = pd.merge(h2_county,c2z[['fips','ba']],on='fips')
+
+
+h2_county = h2_county_withba.merge(h2_stor_char,on='ba',how='left')
+
+components_county = ['LCOF_cap', 'LCOF_vom', 'LCOF_fom', 'LCOF_co2_tns','LCOF_energy_gas','LCOF_energy_elec_ongrid', 
+                    'LCOF_energy_elec_wind', 'LCOF_energy_elec_pv', 'LCOF_energy_elec_min', 'LCOF_energy_elec_blend','LCOS_cap','LCOS_fom']
+
+# find columns that aren't in components for the melt function
+id_vars_county = [x for x in list(h2_county.columns) if x not in components_county]
+
+h2_county_out = pd.melt(h2_county,value_name='LCOF_Cost',value_vars=components_county,id_vars = id_vars_county)
+
+
+ongrid_vars = ['LCOF_cap', 'LCOF_vom', 'LCOF_fom', 'LCOF_co2_tns','LCOF_energy_gas', 'LCOF_energy_elec_ongrid','LCOS_cap','LCOS_fom']
+offgrid_vars = ['LCOF_cap', 'LCOF_vom', 'LCOF_fom', 'LCOF_co2_tns','LCOF_energy_gas', 'LCOF_energy_elec_blend','LCOS_cap','LCOS_fom']
+
+#df['Category'].isin(allowed_categories)
+h2_county_out_offgrid = h2_county_out.copy()
+h2_county_out_offgrid['style'] = 'offgrid'
+h2_county_out_offgrid = h2_county_out_offgrid[h2_county_out_offgrid['variable'].isin(offgrid_vars)]
+h2_county_out_ongrid = h2_county_out.copy()
+h2_county_out_ongrid['style'] = 'ongrid'
+h2_county_out_ongrid = h2_county_out_ongrid[h2_county_out_ongrid['variable'].isin(ongrid_vars)]
+
+h2_county_out = pd.concat([h2_county_out_ongrid,h2_county_out_offgrid])
+
+h2_county_out.to_csv(os.path.join(root_dir,"LCOH","county_h2_out.csv"))
+
+
+
+
+# --- begin LCOS by state --- #
+
+steel_county = temp_wide.copy()
+
+finito_prices = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","fuelprices_finito.csv"))
+finito_prices['state_abb'] = finito_prices['state_abb'].str.lower().str.replace(' ','') 
+finito_prices = finito_prices[finito_prices['state_abb']!='voluntary']
+finito_prices = finito_prices[finito_prices['t']==lcoe_year]
+
+finito_prices = finito_prices[['ei','state_abb','cost']]
+
+#county_wide = lcoe_county_out.pivot(index=['fips'], columns=['ele_tech'], values=chosen_lcoe).reset_index()
+finito_prices = finito_prices.pivot(index='state_abb',columns='ei',values='cost').reset_index()
+steel_prices = steel_county.merge(finito_prices,on='state_abb',how='left')
+steel_prices.columns = steel_prices.columns.str.replace("int","price")
+#!!! need to add ore cost here
+#!!! need to merge with lcoh here as well..
+lcoh_tech = h2_county_out.groupby(['fips','pathway','style'])['LCOF_Cost'].sum().reset_index()
+
+steel_matrix = steel_prices.merge(lcoh_tech,on='fips',how='left')
+
+
+
+
+
+
+steel_char = pd.read_csv(os.path.join(root_dir,"FINITO","inputs","char_ind.csv"))
+
+steel_char = steel_char[steel_char['id']=='new']
+steel_char = steel_char[steel_char['commodity']=='steel']
+
+#steel_char.to_csv(os.path.join(root_dir,"LCOH","temp_steel.csv"))
+drop_steel = ["id","ba_zone","commodity","fac_id","fac_zip","lat","lon","cod","ref_cap","cap_dec","prod_2018","int_hgl","int_opet","int_ng_feed","int_coal_feed","int_coke_feed","int_lighthgl_feed","int_medhgl_feed","int_heavypchem_feed","int_m_limestone","int_m_cullet","int_m_silica","int_m_soda_ash","co2_rate_proc"]
+
+steel_char = steel_char.drop(drop_steel,axis=1)
+
+wacc_par = (1-equity_share)*int_debt*(1-tax_rate)+equity_share*rroe_real
+crf_par = (wacc_par * (1+wacc_par)**fac_lifetime) / ( (1+wacc_par)**fac_lifetime-1 )
+
+
+steel_perm = steel_matrix.merge(steel_char,how='cross')
+
+steel_perm['lcos_coal'] = steel_perm['int_coal'].astype(float)*steel_perm['price_coal'].astype(float)
+steel_perm['lcos_met_coal'] = steel_perm['int_met_coal'].astype(float)*steel_perm['price_met_coal'].astype(float)
+steel_perm['lcos_coke'] = steel_perm['int_coke'].astype(float)*steel_perm['price_coke'].astype(float)
+steel_perm['lcos_ddfo'] = steel_perm['int_ddfo'].astype(float)*steel_perm['price_ddfo'].astype(float)
+steel_perm['lcos_ng'] = steel_perm['int_ng'].astype(float)*steel_perm['gas_price'].astype(float)
+#steel_perm['lcos_elec'] = steel_perm['int_elec'].astype(float)*steel_perm['lcoe'].astype(float)
+steel_perm['lcos_elec'] = steel_perm['int_elec'].astype(float)*steel_perm['price_elec'].astype(float)
+steel_perm['lcos_rfo'] = steel_perm['int_rfo'].astype(float)*steel_perm['price_rfo'].astype(float)
+steel_perm['lcos_h2_feed'] = 114*steel_perm['int_h2_feed'].astype(float)*steel_perm['LCOF_Cost'].astype(float)
+#h2_stor_char.loc[h2_stor_char['parameter']=='cost_cap','LCOS']
+#steel_perm.loc[steel_perm['style']=='ongrid','lcos_h2_feed'] = 2 * steel_perm['lcos_h2_feed']
+
+steel_perm.loc[(steel_perm['style']=='ongrid') & (steel_perm['pathway']=='h2_smr'),'lcos_h2_feed'] = 1.6 * steel_perm['lcos_h2_feed']
+
+#assumptions from finito
+#!!! need adjusting to 2024 dollars
+steel_perm['lcos_m_scrap'] = steel_perm['int_m_scrap'].astype(float)*325
+steel_perm['lcos_m_ore'] = steel_perm['int_m_ore'].astype(float)*111.06
+
+steel_perm['lcos_vom'] = steel_perm['cost_vom']
+
+steel_perm['lcos_cap'] = steel_perm['cost_cap'].astype(float)*cdt_factor*crf_par/cap_factor
+steel_perm['lcos_fom'] = steel_perm['cost_fom'].astype(float)/cap_factor*0.1149
+
+
+#!!!!
+#steel_perm['lcos_ccs'] = 0 
+#steel_perm['']
+
+  
+#steel_char = ['lcos_coal','lcos_met_coal','lcos_coke','lcos_ddfo','lcos_ng','lcos_elec','lcos_elec','lcos_rfo','lcos_h2_feed','lcos_m_scrap','lcos_m_ore','lcos_vom','lcos_cap','lcos_fom','lcos_ccs']
+#steel_out = steel_perm[['fips','type','pathway','style','lcos_coal','lcos_met_coal','lcos_coke','lcos_ddfo','lcos_ng','lcos_elec','lcos_elec','lcos_rfo','lcos_h2_feed','lcos_m_scrap','lcos_m_ore','lcos_vom','lcos_cap','lcos_fom','lcos_ccs']]
+
+#!!!without ccs costs!!!
+steel_char = ['lcos_coal','lcos_met_coal','lcos_coke','lcos_ddfo','lcos_ng','lcos_elec','lcos_elec','lcos_rfo','lcos_h2_feed','lcos_m_scrap','lcos_m_ore','lcos_vom','lcos_cap','lcos_fom']
+steel_out = steel_perm[['fips','type','pathway','style','lcos_coal','lcos_met_coal','lcos_coke','lcos_ddfo','lcos_ng','lcos_elec','lcos_elec','lcos_rfo','lcos_h2_feed','lcos_m_scrap','lcos_m_ore','lcos_vom','lcos_cap','lcos_fom']]
+
+
+steel_county = pd.melt(steel_perm,value_name='lcos',value_vars=steel_char,id_vars = ['fips','type','pathway','style'])
+
+steel_county.to_csv(os.path.join(root_dir,'LCOH','steel_county.csv'))
+
+
+#!!!! emissions from coal, gas, .. emissions need to get captured and charged at ccs_cost
+# 'ccs_cap_rate_comb'
+#'ccs_cap_rate_prod'
+
+
+
+
+
+
+
 
 
 
