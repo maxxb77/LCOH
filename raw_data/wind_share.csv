@@ -1,0 +1,59 @@
+﻿State,wind_share
+Connecticut,0.019569472
+Maine,0.724481965
+Massachusetts,0.073432343
+New Hampshire,0.991091314
+Rhode Island,0.22319202
+Vermont,0.6152513
+Middle Atlantic,0.75
+New Jersey,0.010520487
+New York,0.639312773
+Pennsylvania,0.749528401
+East North Central,0.75
+Illinois,0.900386954
+Indiana,0.759441644
+Michigan,0.835958904
+Ohio,0.416061574
+Wisconsin,0.404216501
+West North Central,0.75
+Iowa,0.985081264
+Kansas,0.997270006
+Minnesota,0.863686311
+Missouri,0.97146933
+Nebraska,0.985116653
+North Dakota,0.75
+South Dakota,0.972888425
+South Atlantic,0.75
+Delaware,0.017647059
+District Of Columbia,0
+Florida,0
+Georgia,0
+Maryland,0.334331935
+North Carolina,0.041415957
+South Carolina,0
+Virginia,0.00706115
+West Virginia,0.906334842
+East South Central,0.75
+Alabama,0
+Kentucky,0
+Mississippi,0.182631579
+Tennessee,0.019590383
+West South Central,0.75
+Arkansas,0
+Louisiana,0
+Oklahoma,0.992371314
+Texas,0.759567858
+Mountain,0.75
+Arizona,0.190604833
+Colorado,0.78089788
+Idaho,0.736746362
+Montana,0.940996785
+Nevada,0.02492577
+New Mexico,0.779687819
+Utah,0.132358125
+Wyoming,0.956814701
+California,0.236561886
+Oregon,0.821894303
+Washington,0.9507734
+Alaska,0.885714286
+Hawaii,0.473533619
