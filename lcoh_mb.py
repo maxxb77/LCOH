@@ -252,7 +252,7 @@ h2_state_out.to_csv(os.path.join(root_dir,"LCOH","lcoh_state.csv"))
 
 #--- begin h2 by county ---#
 
-c2z_loc = "/Users/max/Documents/GitHub/ReEDS-2.0/inputs/county2zone.csv"
+c2z_loc = "/Users/max/Documents/GitHub/LCOH/raw_data/county2zone.csv"
 
 c2z = pd.read_csv(c2z_loc,names=['fips','ba','county_name','state_abb'],header=0, dtype={'fips': str})
 
@@ -385,9 +385,9 @@ h2_county['LCOF_energy_elec_min'] = h2_county['int_elec'].astype(float) * h2_cou
 h2_county['LCOF_energy_elec_blend'] = h2_county['int_elec'].astype(float) * h2_county['lcoe_blend'] 
 h2_county['LCOF_fom'] = h2_county['cost_fom_per_metric_ton'].astype(float)/114.877
 
-h2_transport_stor = pd.read_csv("/Users/max/Documents/GitHub/ReEDS-2.0/inputs/consume/h2_transport_and_storage_costs.csv",
+h2_transport_stor = pd.read_csv("/Users/max/Documents/GitHub/LCOH/raw_data/h2_transport_and_storage_costs.csv",
                                 names=['type','t','parameter','value'],header=0)
-h2_stor = pd.read_csv("/Users/max/Documents/GitHub/ReEDS-2.0/inputs/consume/h2_storage_rb.csv",names=['type','ba'],header=0)
+h2_stor = pd.read_csv("/Users/max/Documents/GitHub/LCOH/raw_data/h2_storage_rb.csv",names=['type','ba'],header=0)
 
 h2_stor_char = pd.merge(h2_stor,h2_transport_stor,how='left')
 
