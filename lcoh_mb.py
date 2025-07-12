@@ -150,15 +150,12 @@ for index, row in fuel_comb.iterrows():
   
 cdt_factor = 1.17
 cap_factor = 0.85
-
 equity_share = 0.4
 int_debt = 0.05
 tax_rate = 0.25
 rroe_real = 0.08
 fac_lifetime = 30
 inflate = 1.057
-
-
 emit_coal = 0.094
 emit_ddfo = 0.074
 emit_ng = 0.053
@@ -219,11 +216,6 @@ h2_state['cost_cap'] = h2_state['cost_cap'].astype(float)
 h2_state['LCOF_cap'] = h2_state['cost_cap']/114.877/365*cdt_factor*h2_state['crf']/cap_factor
 h2_state['LCOF_vom'] = h2_state['cost_vom'].astype(float)
 
-#!!! if copying this line, need to include other components
-#h2_state['emit_rate_comb'] = 0.052 * h2_state['int_ng'].astype(float)
-#h2_state['emit_ele'] = 365 * h2_state['int_elec'].astype(float)
-#h2_state['emit_rate_total'] = h2_state['emit_rate_comb'] + h2_state['emit_ele']
-#captured emissions do not include upstream accounting
 h2_state['emit_captured'] = h2_state['ccs_cap_rate_comb'].astype(float) * 0.053 * h2_state['int_ng'].astype(float)
 
 
@@ -260,7 +252,9 @@ slope_cols = ["county_name","state_full", "state_code", "ele_tech", "year", "gid
 lcoe_county = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","SLOPE_LCOE.csv"),names=slope_cols,header=0, dtype={'fips': str})
 
 #updated version - now 2024
-chosen_lcoe = "der_mean"
+#!!!! important assumption here, can choose from any of the values below
+#!!!! default/reference is LCOE_min
+chosen_lcoe_input = "der_mean"
 lcoe_year = 2030
 slope_cols_new = ["county_name","state_full", "state_code", "ele_tech","year", "gid", "lcoe_mean", "lcoe_min", "lcoe_max", "lcoe_med", "sd_a", "sd_b", "sd_c","der_mean"]
 lcoe_county_new = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","slope_2024.csv"),names=slope_cols_new,header=0, dtype={'fips': str})
@@ -270,50 +264,44 @@ for i in lcoe_county_new['fips'].unique():
     if len(lcoe_county_new[(lcoe_county_new['fips']==i) & (lcoe_county_new['ele_tech']=='land-based-wind')] ) == 0:
         temp = lcoe_county_new[(lcoe_county_new['fips']==i) & (lcoe_county_new['ele_tech']=='pv')]
         temp['ele_tech'] = 'land-based-wind'
-        temp[chosen_lcoe] = 51.35
+        temp[chosen_lcoe_input] = 51.35
         lcoe_county_new = pd.concat([lcoe_county_new,temp])
         #print(i)
 
-#lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe] = lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe]  / 2.5
+#lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe_input] = lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe_input]  / 2.5
 
 #inflation-adjusted adder
 # RIP IRA
 ptc_adder = 27.5 * 0.94
 #county_wide['lcoe_wind'] = county_wide['lcoe_wind'] + ptc_adder
 #county_wide['lcoe_pv'] = county_wide['lcoe_pv'] + ptc_adder
-#lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe] = lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe] + ptc_add 2.5
-lcoe_county_new.loc[lcoe_county_new['ele_tech']=='pv',chosen_lcoe] = lcoe_county_new.loc[lcoe_county_new['ele_tech']=='pv',chosen_lcoe] + ptc_adder
+#lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe_input] = lcoe_county_new.loc[lcoe_county_new['ele_tech']=='land-based-wind',chosen_lcoe_input] + ptc_add 2.5
+lcoe_county_new.loc[lcoe_county_new['ele_tech']=='pv',chosen_lcoe_input] = lcoe_county_new.loc[lcoe_county_new['ele_tech']=='pv',chosen_lcoe_input] + ptc_adder
 
 lcoe_county_new.to_csv(os.path.join(root_dir,"LCOH","lcoe_plot.csv"))
 lcoe_county = lcoe_county_new
-
-
-
 
 # filter by year
 # remove battery techs
 # find minimum value
 # stack
 lcoe_county_sub = lcoe_county[lcoe_county['year']==lcoe_year]
-lcoe_county_sub = lcoe_county_sub[["fips","ele_tech",chosen_lcoe]]
+lcoe_county_sub = lcoe_county_sub[["fips","ele_tech",chosen_lcoe_input]]
 
 
 remove_tech = ['btm','battery','coal','commercial_pv','fom','gas-cc','gas-ct','geothermal','residential_pv']
 lcoe_county_nobattery = lcoe_county_sub[~lcoe_county_sub['ele_tech'].isin(remove_tech)]
-lcoe_county_nobattery = lcoe_county_nobattery[lcoe_county_nobattery[chosen_lcoe]>0]
+lcoe_county_nobattery = lcoe_county_nobattery[lcoe_county_nobattery[chosen_lcoe_input]>0]
 
 
 lcoe_county_sub = lcoe_county_sub[(lcoe_county_sub['ele_tech']=="land-based-wind") | (lcoe_county_sub['ele_tech']=='pv')]
-lcoe_min = lcoe_county_nobattery.groupby('fips')[chosen_lcoe].min().reset_index()
+lcoe_min = lcoe_county_nobattery.groupby('fips')[chosen_lcoe_input].min().reset_index()
 lcoe_min['ele_tech'] = "min_alltechs"
 lcoe_county_out = pd.concat([lcoe_min,lcoe_county_sub]).drop_duplicates().reset_index()
 
-county_wide = lcoe_county_out.pivot(index=['fips'], columns=['ele_tech'], values=chosen_lcoe).reset_index()
+county_wide = lcoe_county_out.pivot(index=['fips'], columns=['ele_tech'], values=chosen_lcoe_input).reset_index()
 county_wide.columns = ['fips','lcoe_wind','lcoe_min','lcoe_pv']
 
-
-#!!! re-visit assumptions here
-#county_wide['lcoe_blend'] = 0.75 * county_wide['lcoe_wind'] +  0.25 * county_wide['lcoe_pv']
 
 county_wide = pd.merge(county_wide,c2z[['fips','state_abb']],on='fips')
 county_wide['state_abb'] = county_wide['state_abb'].str.lower().str.replace(' ', '')
@@ -325,9 +313,10 @@ wind_share = pd.merge(wind_share,state_name_abb,on='state_name')
 county_wide = pd.merge(county_wide,wind_share[['state_abb','share']],on='state_abb',how='left')
 
 county_wide['lcoe_blend'] = county_wide['lcoe_wind'] * county_wide['share'] + county_wide['lcoe_pv'] * (1-county_wide['share'])
-#county_wide['lcoe_blend'] = county_wide['lcoe_wind'] * 0.75 + county_wide['lcoe_pv'] * 0.25
+
 
 #!!!! important assumption here
+#!!!! can either choose the minimum (lcoe_min) or the wind/solar blend (lcoe_blend)
 chosen_lcoe = "lcoe_min"
 
 
@@ -335,10 +324,8 @@ county_wide = pd.merge(county_wide,wind_share,how='left')
 
 
 fuel_prices_state = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","fuel_prices_state.csv"))
-
 fuel_prices_state['state_name'] = fuel_prices_state['State'].str.lower().str.replace(' ', '')
 fuel_prices_state = pd.merge(fuel_prices_state,state_name_abb)
-
 fuel_prices_state = fuel_prices_state[['state_abb','ELE_IND','Gas','CCS2']]
 fuel_prices_state.columns = ['state_abb','grid_ele_price','gas_price','ccs_cost']
 
@@ -347,12 +334,9 @@ county_wide = pd.merge(county_wide,fuel_prices_state,on='state_abb')
 temp_wide = county_wide[['fips','state_abb',chosen_lcoe,'grid_ele_price','gas_price','ccs_cost']]
 temp_wide.columns = ['fips','state_abb','offgrid_ele_price','grid_ele_price','gas_price','ccs_cost']
 
-
 h2_county = h2_char_orig.copy()
 h2_county = h2_county[['pathway','cost_cap','cost_fom_per_metric_ton','ccs_cap_rate_comb','cost_vom','int_elec','int_ng']]
-
 h2_county = h2_county.merge(county_wide, how='cross')
-
 
 #compute the WACC and capital recovery factor to use in LCOF
 h2_county['wacc'] = (1-equity_share)*int_debt*(1-tax_rate)+equity_share*rroe_real
@@ -365,11 +349,6 @@ h2_county['cost_cap'] = h2_county['cost_cap'].astype(float)
 h2_county['LCOF_cap'] = h2_county['cost_cap']/114.877/365*cdt_factor*h2_county['crf']/cap_factor
 h2_county['LCOF_vom'] = h2_county['cost_vom'].astype(float)
 
-#!!! if copying this line, need to include other components
-#h2_county['emit_rate_comb'] = 0.052 * h2_county['int_ng'].astype(float)
-#h2_county['emit_ele'] = 365 * h2_county['int_elec'].astype(float)
-#h2_county['emit_rate_total'] = h2_county['emit_rate_comb'] + h2_county['emit_ele']
-#captured emissions do not include upstream accounting
 h2_county['emit_captured'] = h2_county['ccs_cap_rate_comb'].astype(float) * 0.053 * h2_county['int_ng'].astype(float)
 
 
@@ -429,7 +408,6 @@ chosen_lcoe_offgrid = 'LCOF_energy_elec_min'
 ongrid_vars = ['LCOF_cap', 'LCOF_vom', 'LCOF_fom', 'LCOF_co2_tns','LCOF_energy_gas', 'LCOF_energy_elec_ongrid','LCOS_cap','LCOS_fom']
 offgrid_vars = ['LCOF_cap', 'LCOF_vom', 'LCOF_fom', 'LCOF_co2_tns','LCOF_energy_gas', 'LCOF_energy_elec_min','LCOS_cap','LCOS_fom']
 
-#df['Category'].isin(allowed_categories)
 h2_county_out_offgrid = h2_county_out.copy()
 h2_county_out_offgrid['style'] = 'offgrid'
 h2_county_out_offgrid = h2_county_out_offgrid[h2_county_out_offgrid['variable'].isin(offgrid_vars)]
@@ -438,7 +416,6 @@ h2_county_out_ongrid['style'] = 'ongrid'
 h2_county_out_ongrid = h2_county_out_ongrid[h2_county_out_ongrid['variable'].isin(ongrid_vars)]
 
 h2_county_out = pd.concat([h2_county_out_ongrid,h2_county_out_offgrid])
-
 h2_county_out.to_csv(os.path.join(root_dir,"LCOH","county_h2_out.csv"))
 
 
@@ -450,6 +427,7 @@ steel_county = temp_wide.copy()
 # load in ba mapping to fips and match CCS costs by column
 steel_county = steel_county.merge(c2z[['fips','ba']],how='left')
 
+# add in ore transport costs
 ore_transport = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","finito_iron_ore_transport_cost.csv"),header=0)
 ore_transport.columns = ore_transport.columns.str.lower()
 ore_transport = ore_transport[['ba','2030']]
@@ -463,30 +441,21 @@ finito_prices = finito_prices[finito_prices['state_abb']!='voluntary']
 finito_prices = finito_prices[finito_prices['t']==lcoe_year]
 
 finito_prices = finito_prices[['ei','state_abb','cost']]
-
-#county_wide = lcoe_county_out.pivot(index=['fips'], columns=['ele_tech'], values=chosen_lcoe).reset_index()
 finito_prices = finito_prices.pivot(index='state_abb',columns='ei',values='cost').reset_index()
+
 steel_prices = steel_county.merge(finito_prices,on='state_abb',how='left')
 steel_prices.columns = steel_prices.columns.str.replace("int","price")
-#!!! need to add ore cost here
-#!!! need to merge with lcoh here as well..
+
 lcoh_tech = h2_county_out.groupby(['fips','pathway','style'])['LCOF_Cost'].sum().reset_index()
 
 #!!!! if you have LCOH by fips, tech, and on/offgrid (style).. can replace here
-
 steel_matrix = steel_prices.merge(lcoh_tech,on='fips',how='left')
-
-
-
-
-
 
 steel_char = pd.read_csv(os.path.join(root_dir,"LCOH","raw_data","char_ind.csv"))
 
 steel_char = steel_char[steel_char['id']=='new']
 steel_char = steel_char[steel_char['commodity']=='steel']
 
-#steel_char.to_csv(os.path.join(root_dir,"LCOH","temp_steel.csv"))
 drop_steel = ["id","ba_zone","commodity","fac_id","fac_zip","lat","lon","cod","ref_cap","cap_dec","prod_2018","int_hgl","int_opet",
               "int_ng_feed","int_coal_feed","int_coke_feed","int_lighthgl_feed","int_medhgl_feed","int_heavypchem_feed",
               "int_m_limestone","int_m_cullet","int_m_silica","int_m_soda_ash"]
@@ -499,21 +468,18 @@ crf_par = (wacc_par * (1+wacc_par)**fac_lifetime) / ( (1+wacc_par)**fac_lifetime
 
 steel_perm = steel_matrix.merge(steel_char,how='cross')
 
+# -- calculate LCOE components
 steel_perm['lcos_coal'] = steel_perm['int_coal'].astype(float)*steel_perm['price_coal'].astype(float)
 steel_perm['lcos_met_coal'] = steel_perm['int_met_coal'].astype(float)*steel_perm['price_met_coal'].astype(float)
 steel_perm['lcos_coke'] = steel_perm['int_coke'].astype(float)*steel_perm['price_coke'].astype(float)
 steel_perm['lcos_ddfo'] = steel_perm['int_ddfo'].astype(float)*steel_perm['price_ddfo'].astype(float)
 steel_perm['lcos_ng'] = steel_perm['int_ng'].astype(float)*steel_perm['gas_price'].astype(float)
-#steel_perm['lcos_elec'] = steel_perm['int_elec'].astype(float)*steel_perm['lcoe'].astype(float)
 steel_perm['lcos_elec'] = steel_perm['int_elec'].astype(float)*steel_perm['price_elec'].astype(float)
 steel_perm['lcos_rfo'] = steel_perm['int_rfo'].astype(float)*steel_perm['price_rfo'].astype(float)
 steel_perm['lcos_h2_feed'] = 114*steel_perm['int_h2_feed'].astype(float)*steel_perm['LCOF_Cost'].astype(float)
 
-#steel_perm.loc[(steel_perm['style']=='ongrid') & (steel_perm['pathway']=='h2_smr'),'lcos_h2_feed'] = steel_perm['lcos_h2_feed']
-#steel_perm.loc[(steel_perm['pathway']=='h2_pem_electrol'),'lcos_h2_feed'] = 1.05845 * steel_perm['lcos_h2_feed']
 
 #assumptions from finito
-#!!! need adjusting to 2024 dollars - done in tableau
 steel_perm['lcos_m_scrap'] = steel_perm['int_m_scrap'].astype(float)*325
 steel_perm['lcos_m_ore'] = steel_perm['int_m_ore'].astype(float)*(111.06+steel_perm['ore_transport'])
 
@@ -521,6 +487,7 @@ steel_perm['lcos_vom'] = steel_perm['cost_vom']
 
 steel_perm['lcos_cap'] = steel_perm['cost_cap'].astype(float)*cdt_factor*crf_par/cap_factor
 steel_perm['lcos_fom'] = steel_perm['cost_fom'].astype(float)/cap_factor
+
 
 '''
 *ei,value
@@ -533,40 +500,17 @@ int_ddfo,0.074
 int_rfo,0.074
 int_met_coal,0.093
 '''
+
 steel_perm['lcos_ccs'] = steel_perm['ccs_cost'].astype('float') * steel_perm['ccs_cap_rate_comb'].astype('float') * ((steel_perm['int_coal'].astype('float') * 0.095 + steel_perm['int_ng'].astype('float') * 0.053 + steel_perm['int_coke'].astype('float') * 0.113 + 
                              steel_perm['int_ddfo'].astype('float') * 0.074 + steel_perm['int_rfo'].astype('float') * 0.074 + steel_perm['int_met_coal'].astype('float') * 0.093)
                             + steel_perm['co2_rate_proc'].astype('float') )
                             
-
-
 steel_char = ['lcos_coal','lcos_met_coal','lcos_coke','lcos_ddfo','lcos_ng','lcos_elec','lcos_elec','lcos_rfo','lcos_h2_feed','lcos_m_scrap','lcos_m_ore','lcos_vom','lcos_cap','lcos_fom','lcos_ccs']
 steel_out = steel_perm[['fips','type','pathway','style','lcos_coal','lcos_met_coal','lcos_coke','lcos_ddfo','lcos_ng','lcos_elec','lcos_elec','lcos_rfo','lcos_h2_feed','lcos_m_scrap','lcos_m_ore','lcos_vom','lcos_cap','lcos_fom']]
 
-
 steel_county = pd.melt(steel_perm,value_name='lcos',value_vars=steel_char,id_vars = ['fips','type','pathway','style'])
-
 steel_county.to_csv(os.path.join(root_dir,'LCOH','steel_county.csv'))
 
-steel_county_avg = steel_county.groupby(['type','pathway','style','variable'])[['lcos']].mean(numeric_only=True)
-
-
-#!!!! emissions from coal, gas, .. emissions need to get captured and charged at ccs_cost
-# 'ccs_cap_rate_comb'
-#'ccs_cap_rate_prod'
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+#steel_county_avg = steel_county.groupby(['type','pathway','style','variable'])[['lcos']].mean(numeric_only=True)
 
 
