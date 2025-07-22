@@ -511,6 +511,130 @@ steel_out = steel_perm[['fips','type','pathway','style','lcos_coal','lcos_met_co
 steel_county = pd.melt(steel_perm,value_name='lcos',value_vars=steel_char,id_vars = ['fips','type','pathway','style'])
 steel_county.to_csv(os.path.join(root_dir,'LCOH','steel_county.csv'))
 
-#steel_county_avg = steel_county.groupby(['type','pathway','style','variable'])[['lcos']].mean(numeric_only=True)
+
+
+
+
+
+
+
+
+
+
+#-- CAMBIUM --#
+# year for cambium data
+cambium_year = 2030
+
+
+# here - we define a function that loads in the data for a list of balancing areas (BAs)
+# that list of BAs is thread-specific and passed as an argument to the run_regions functions below
+# run_regions first ranks the observations, filters up to each rank (8760 total), and takes the average LCOE across all those hours
+
+#see: https://stackoverflow.com/questions/6893968/how-to-get-the-return-value-from-a-thread
+from threading import Thread
+
+# defines number of threads to use
+num_thread = 10
+
+#create a list of all the ReEDS BAs
+ba_list_full = ['p' + str(n) for n in range(1,135)]
+
+#p119 missing, p122 actually z122
+ba_list_full.remove('p119')
+ba_list_full.remove('p122')
+ba_list_full.append('z122')
+
+
+def run_region(ba_list,results,index):
+    #create an empty data frame
+    cam_out = pd.DataFrame()
+    #for each of the regions in ba_list    
+    for r in ba_list:
+        #load in the data
+        cam_in = pd.read_csv(os.path.join(root_dir,'LCOH','raw_data','hourly_balancingArea','Cambium24_MidCase_hourly_'+r+'_'+str(cambium_year)+'.csv'),header=5)[['total_cost_enduse']]
+        #rank each one, note 'first' implies there can be repeat values which will give us the full 8760        
+        cam_in['rank'] = cam_in.rank(method='first')
+        
+        #for each of the uniquely-ranked items
+        for i in cam_in['rank'].unique():
+            # take the average over all hours up to and including that rank
+            cam_temp = cam_in[cam_in['rank']<=i]['total_cost_enduse'].mean()
+            #create a stackable dataframe
+            cam_stack = pd.DataFrame({'avg_lcoe':[cam_temp], 'rank':[i], 'r':[r] })
+            #stack the dataframe
+            cam_out = pd.concat([cam_out,cam_stack])
+
+    #add the results to the results dataframe
+    results[index] = cam_out    
+
+
+#divide a list up into equal lengths (except the last list)
+def chunks(ba_list, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(ba_list), n):
+        yield ba_list[i:i + n]
+
+# create thread and results lists
+threads = [None] * num_thread
+results = [None] * num_thread
+
+
+#define number of jobs per thread
+num_per_thread = int(round(len(ba_list_full)/num_thread,0)+1)
+
+#break the ba_list_full into n-sized chunks
+ba_index = list(chunks(ba_list_full,num_per_thread))
+
+# create and start threads, grabbing the appropriate list of BAs from ba_index
+for i in range(len(threads)):
+    threads[i] = Thread(target=run_region, args=(ba_index[i], results, i))
+    threads[i].start()
+
+
+
+# join the threads together once they're finished
+for i in range(len(threads)):
+    threads[i].join()
+
+full_out = pd.DataFrame()
+
+for i in range(len(threads)):
+    full_out = pd.concat([full_out,results[i]])
+
+#full_out.to_csv("/Users/max/Desktop/full_temp.csv",index=False)
+# now merge in electrolyzer characteristics and fuel prices by BA
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
