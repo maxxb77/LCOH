@@ -669,12 +669,14 @@ tech_keep = ['h2_pem_electrol', 'h2_soec_electrol', 'h2_smr', 'h2_smr_ccs',
 out_merged= full_out_merged[full_out_merged['pathway'].isin(tech_keep)]
 
 col_keep = ['avg_lcoe', 'rank', 'r', 'state_abb', 'pathway', 
-            'cf', 'LCOF_cap',
-       'LCOF_vom', 'emit_captured', 'LCOF_co2_tns', 'LCOF_energy_gas',
-       'LCOF_energy_elec_ongrid', 'LCOF_energy_elec', 'LCOF_fom', 'LCOS_cap',
+            'cf', 'LCOF_cap','int_elec',
+       'LCOF_vom', 'emit_captured', 'LCOF_co2_tns', 'LCOF_energy_gas','LCOF_energy_elec', 'LCOF_fom', 'LCOS_cap',
        'LCOS_fom']
 
+retail_adders = [0,15,30,45,60]
+
 out_merged[col_keep].to_csv("/Users/max/Desktop/out_temp.csv",index=False)
+
 
 
 
