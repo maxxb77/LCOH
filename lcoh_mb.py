@@ -82,16 +82,10 @@ co2_ele = list(range(co2_mpm_low,co2_mpm_high,co2_step))
 
 #from: https://stackoverflow.com/questions/25634489/get-all-combinations-of-elements-from-two-lists
 #pd.DataFrame(list(product(l1, l2)), columns=['l1', 'l2'])
-
+# no longer used
 co2_ng = [0.053, 0.064, 0.075, 0.082, 0.086, 0.111, 0.140]
-#@@
-#co2_ng = [0.053]
-
 co2_tax = [0]
-
 co2_tns = [5,15,25]
-#@@
-#co2_tns = [15]
 
 fuel_comb = pd.DataFrame(list(product(gas_prices, ele_prices, co2_ele, co2_ng, co2_tax, co2_tns)), columns=['gas_price', 'ele_price','co2_ele','co2_ng', 'co2_tax', 'co2_tns'])
 
@@ -600,39 +594,87 @@ full_out = pd.DataFrame()
 
 for i in range(len(threads)):
     full_out = pd.concat([full_out,results[i]])
+    
 
-#full_out.to_csv("/Users/max/Desktop/full_temp.csv",index=False)
-# now merge in electrolyzer characteristics and fuel prices by BA
+full_out['r'] = full_out['r'].str.replace('z122', 'p122')
 
+h2_8760 = h2_char_orig.copy()
+h2_8760 = h2_8760[['pathway','cost_cap','cost_fom_per_metric_ton','ccs_cap_rate_comb','cost_vom','int_elec','int_ng']]
 
+#h2_county = h2_county.merge(county_wide, how='cross')
+ba_to_state = c2z[['ba','state_abb']].drop_duplicates()
+ba_to_state.columns = ['r','state_abb']
 
+full_out_merged = full_out.merge(ba_to_state,how='left')
 
+full_out_merged = full_out_merged.merge(h2_8760,how='cross')
 
+# add fuel prices, compute LCOH based on hour/capacity factor
 
+#fuel_prices_state
+full_out_merged['state_abb'] = full_out_merged['state_abb'].str.lower().str.replace(' ', '')
 
+full_out_merged = full_out_merged.merge(fuel_prices_state,on='state_abb',how='left')
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+full_out_merged['cf'] = full_out_merged['rank']/8760
 
 
 
+#h2_county['wacc'] = (1-equity_share)*int_debt*(1-tax_rate)+equity_share*rroe_real
+wacc_par = (1-equity_share)*int_debt*(1-tax_rate)+equity_share*rroe_real
+
+crf_par = (wacc_par * (1+wacc_par)**fac_lifetime) / ( (1+wacc_par)**fac_lifetime-1 )
 
 
+full_out_merged['cost_cap'] = full_out_merged['cost_cap'].astype(float)
+full_out_merged['LCOF_cap'] = full_out_merged['cost_cap']/114.877/365*cdt_factor * crf_par/full_out_merged['cf']
+full_out_merged['LCOF_vom'] = full_out_merged['cost_vom'].astype(float)
+full_out_merged['emit_captured'] = full_out_merged['ccs_cap_rate_comb'].astype(float) * 0.053 * full_out_merged['int_ng'].astype(float)
+full_out_merged['LCOF_co2_tns'] = full_out_merged['ccs_cost'].astype(float) * full_out_merged['emit_captured']
+full_out_merged['LCOF_energy_gas'] = full_out_merged['int_ng'].astype(float) * full_out_merged['gas_price']
+# here note we're using the avg_lcoe value up to the ranked hour
+full_out_merged['LCOF_energy_elec'] = full_out_merged['int_elec'].astype(float) * full_out_merged['avg_lcoe'] 
+full_out_merged['LCOF_fom'] = full_out_merged['cost_fom_per_metric_ton'].astype(float)/114.877
+
+h2_transport_stor = pd.read_csv("/Users/max/Documents/GitHub/LCOH/raw_data/h2_transport_and_storage_costs.csv",
+                                names=['type','t','parameter','value'],header=0)
+h2_stor = pd.read_csv("/Users/max/Documents/GitHub/LCOH/raw_data/h2_storage_rb.csv",names=['type','r'],header=0)
 
 
+h2_stor_char = pd.merge(h2_stor,h2_transport_stor,how='left')
 
+h2_stor_char = h2_stor_char[h2_stor_char['parameter'].isin(['cost_cap','fom'])]
+
+h2_stor_char['LCOS'] = 0
+
+#h2_county['LCOF_cap'] = h2_county['cost_cap']/114.877/365*cdt_factor*h2_county['crf']/cap_factor
+h2_stor_char.loc[h2_stor_char['parameter']=='cost_cap','LCOS'] = (h2_stor_char['value'] / 8760 / 114.877) / 0.15
+
+#h2_perm['LCOF_fom'] = h2_perm['cost_fom_per_metric_ton'].astype(float)/114.877
+h2_stor_char.loc[h2_stor_char['parameter']=='fom','LCOS'] = h2_stor_char['value'] / 1e4
+
+h2_stor_char = h2_stor_char[h2_stor_char['t']==lcoe_year]
+h2_stor_char = h2_stor_char[['r','parameter','LCOS']]
+
+h2_stor_char = h2_stor_char.pivot(index='r',columns='parameter',values='LCOS').reset_index()
+h2_stor_char.columns = ['r','LCOS_cap','LCOS_fom']
+
+
+full_out_merged = full_out_merged.merge(h2_stor_char,on='r',how='left')
+
+tech_keep = ['h2_pem_electrol', 'h2_soec_electrol', 'h2_smr', 'h2_smr_ccs',
+       'h2_pem_electrol_gh500', 'h2_pem_electrol_gh1000',
+       'h2_pem_electrol_gh2000']
+
+out_merged= full_out_merged[full_out_merged['pathway'].isin(tech_keep)]
+
+col_keep = ['avg_lcoe', 'rank', 'r', 'state_abb', 'pathway', 
+            'cf', 'LCOF_cap',
+       'LCOF_vom', 'emit_captured', 'LCOF_co2_tns', 'LCOF_energy_gas',
+       'LCOF_energy_elec_ongrid', 'LCOF_energy_elec', 'LCOF_fom', 'LCOS_cap',
+       'LCOS_fom']
+
+out_merged[col_keep].to_csv("/Users/max/Desktop/out_temp.csv",index=False)
 
 
 
