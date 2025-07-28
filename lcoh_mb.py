@@ -410,6 +410,7 @@ h2_county_out_ongrid['style'] = 'ongrid'
 h2_county_out_ongrid = h2_county_out_ongrid[h2_county_out_ongrid['variable'].isin(ongrid_vars)]
 
 h2_county_out = pd.concat([h2_county_out_ongrid,h2_county_out_offgrid])
+### khushi - this is the file which will have lcoh by fips code and technology using the LCOE values (offgrid)
 h2_county_out.to_csv(os.path.join(root_dir,"LCOH","county_h2_out.csv"))
 
 
