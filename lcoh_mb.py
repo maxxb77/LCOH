@@ -677,9 +677,37 @@ col_keep = ['avg_lcoe', 'rank', 'r', 'state_abb', 'pathway',
        'LCOF_vom', 'emit_captured', 'LCOF_co2_tns', 'LCOF_energy_gas','LCOF_energy_elec', 'LCOF_fom', 'LCOS_cap',
        'LCOS_fom']
 
-retail_adders = [0,15,30,45,60]
 
-#out_merged[col_keep].to_csv("/Users/max/Desktop/out_temp.csv",index=False)
+#grab every 4th observation
+ranks_keep = list(range(1,8761,4))
+out_sub = out_merged[col_keep]
+out_sub = out_sub[out_sub['rank'].isin(ranks_keep)]
+
+#add on retail adders
+retail_adders = [0,15,30,45]
+
+#out_sub.to_csv(os.path.join(root_dir,"ba_8760_out.csv"))
+
+retail_out = pd.DataFrame()
+
+for i in retail_adders:
+    temp = out_sub
+    temp['retail_adder'] = i 
+    temp['LCOF_retail_adder'] = i * temp['int_elec'].astype(float)
+    retail_out = pd.concat([retail_out,temp])
+
+retail_out.to_csv(os.path.join(root_dir,"LCOH","ba_retail_adders.csv"))
+
+
+
+
+
+
+
+
+
+
+
 
 
 
