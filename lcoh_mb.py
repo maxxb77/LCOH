@@ -693,7 +693,6 @@ retail_out = pd.DataFrame()
 for i in retail_adders:
     temp = out_sub
     temp['retail_adder'] = i 
-    temp['LCOF_retail_adder'] = i * temp['int_elec'].astype(float)
     retail_out = pd.concat([retail_out,temp])
 
 retail_out.to_csv(os.path.join(root_dir,"LCOH","ba_retail_adders.csv"))
